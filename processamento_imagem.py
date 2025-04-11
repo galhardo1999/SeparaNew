@@ -34,11 +34,8 @@ def pre_processar_imagem(caminho_origem: Path, caminho_destino: Path) -> bool:
     try:
         if not validar_imagem(caminho_origem):
             return False
-        imagem = cv2.imread(str(caminho_origem), cv2.IMREAD_COLOR)
-        if imagem is None:
-            logger.warning(f"cv2.imread falhou para {caminho_origem}. Tentando fallback.")
-            imagem = face_recognition.load_image_file(str(caminho_origem))
-            imagem = cv2.cvtColor(imagem, cv2.COLOR_RGB2BGR)
+        imagem = face_recognition.load_image_file(str(caminho_origem))
+        imagem = cv2.cvtColor(imagem, cv2.COLOR_RGB2BGR)
         altura, largura = imagem.shape[:2]
         if largura <= Configuracao.TAMANHO_MAXIMO[0] and altura <= Configuracao.TAMANHO_MAXIMO[1]:
             cv2.imwrite(str(caminho_destino), imagem)
