@@ -8,12 +8,12 @@ from typing import Optional, Tuple, List, Union
 
 logger = logging.getLogger(__name__)
 
-class Config:
-    MAX_SIZE: Tuple[int, int] = (640, 480)
-    TOLERANCE: float = 0.4
-    MODEL: str = "cnn"  # Can be "hog" for faster processing
+class Configuracao:
+    TAMANHO_MAXIMO: Tuple[int, int] = (2560, 1440)
+    TOLERANCIA: float = 0.55
+    MODELO: str = "cnn"  # Pode ser "hog" para processamento mais rápido
 
-def validate_image(caminho: Path) -> bool:
+def validar_imagem(caminho: Path) -> bool:
     """Verifica se o arquivo é uma imagem válida."""
     try:
         if not caminho.exists():
@@ -29,49 +29,49 @@ def validate_image(caminho: Path) -> bool:
         logger.error(f"Erro ao validar imagem {caminho}: {e}")
         return False
 
-def preprocess_image(caminho_orig: Path, caminho_dest: Path) -> bool:
+def pre_processar_imagem(caminho_origem: Path, caminho_destino: Path) -> bool:
     """Pré-processa uma imagem: valida e redimensiona se necessário."""
     try:
-        if not validate_image(caminho_orig):
+        if not validar_imagem(caminho_origem):
             return False
-        imagem = cv2.imread(str(caminho_orig), cv2.IMREAD_COLOR)
+        imagem = cv2.imread(str(caminho_origem), cv2.IMREAD_COLOR)
         if imagem is None:
-            logger.warning(f"cv2.imread falhou para {caminho_orig}. Tentando fallback.")
-            imagem = face_recognition.load_image_file(str(caminho_orig))
+            logger.warning(f"cv2.imread falhou para {caminho_origem}. Tentando fallback.")
+            imagem = face_recognition.load_image_file(str(caminho_origem))
             imagem = cv2.cvtColor(imagem, cv2.COLOR_RGB2BGR)
         altura, largura = imagem.shape[:2]
-        if largura <= Config.MAX_SIZE[0] and altura <= Config.MAX_SIZE[1]:
-            cv2.imwrite(str(caminho_dest), imagem)
-            logger.debug(f"Imagem sem redimensionamento salva em {caminho_dest}")
+        if largura <= Configuracao.TAMANHO_MAXIMO[0] and altura <= Configuracao.TAMANHO_MAXIMO[1]:
+            cv2.imwrite(str(caminho_destino), imagem)
+            logger.debug(f"Imagem sem redimensionamento salva em {caminho_destino}")
             return True
-        proporcao = min(Config.MAX_SIZE[0] / largura, Config.MAX_SIZE[1] / altura)
+        proporcao = min(Configuracao.TAMANHO_MAXIMO[0] / largura, Configuracao.TAMANHO_MAXIMO[1] / altura)
         nova_largura = int(largura * proporcao)
         nova_altura = int(altura * proporcao)
         imagem = cv2.resize(imagem, (nova_largura, nova_altura), interpolation=cv2.INTER_AREA)
-        if not cv2.imwrite(str(caminho_dest), imagem):
-            logger.error(f"Erro ao salvar imagem pré-processada em {caminho_dest}")
+        if not cv2.imwrite(str(caminho_destino), imagem):
+            logger.error(f"Erro ao salvar imagem pré-processada em {caminho_destino}")
             return False
-        logger.debug(f"Imagem pré-processada salva em {caminho_dest}")
+        logger.debug(f"Imagem pré-processada salva em {caminho_destino}")
         return True
     except (cv2.error, ValueError, OSError) as e:
-        logger.error(f"Erro ao pré-processar imagem {caminho_orig}: {e}")
+        logger.error(f"Erro ao pré-processar imagem {caminho_origem}: {e}")
         return False
 
-def load_face_encodings(caminho: Path) -> List[np.ndarray]:
+def carregar_codificacoes_rostos(caminho: Path) -> List[np.ndarray]:
     """Carrega codificações de rostos de uma imagem."""
     try:
-        if not validate_image(caminho):
+        if not validar_imagem(caminho):
             return []
         imagem = face_recognition.load_image_file(str(caminho))
-        encodings = face_recognition.face_encodings(imagem, model=Config.MODEL)
-        if not encodings:
+        codificacoes = face_recognition.face_encodings(imagem, model=Configuracao.MODELO)
+        if not codificacoes:
             logger.warning(f"Nenhum rosto detectado em {caminho}")
-        return encodings
+        return codificacoes
     except Exception as e:
         logger.error(f"Erro ao carregar codificações de {caminho}: {e}")
         return []
 
-def compare_faces(known_encodings: List[np.ndarray], face_encoding: np.ndarray) -> bool:
+def comparar_rostos(codificacoes_conhecidas: List[np.ndarray], codificacao_rosto: np.ndarray) -> bool:
     """Compara uma codificação de rosto com codificações conhecidas."""
-    results = face_recognition.compare_faces(known_encodings, face_encoding, tolerance=Config.TOLERANCE)
-    return any(results)
+    resultados = face_recognition.compare_faces(codificacoes_conhecidas, codificacao_rosto, tolerance=Configuracao.TOLERANCIA)
+    return any(resultados)

@@ -11,28 +11,28 @@ from typing import Dict, List, Iterator, Optional
 
 logger = logging.getLogger(__name__)
 
-def normalize_path(caminho: str, base_dir: Optional[str] = None) -> str:
+def normalizar_caminho(caminho: str, diretorio_base: Optional[str] = None) -> str:
     """Normaliza o caminho para compatibilidade e segurança."""
     try:
         caminho = unicodedata.normalize('NFC', str(caminho))
         caminho = os.path.abspath(caminho)
-        if base_dir and not caminho.startswith(os.path.abspath(base_dir)):
-            raise ValueError(f"Caminho {caminho} fora do diretório permitido {base_dir}")
+        if diretorio_base and not caminho.startswith(os.path.abspath(diretorio_base)):
+            raise ValueError(f"Caminho {caminho} fora do diretório permitido {diretorio_base}")
         return caminho.replace('\\', '/')
     except Exception as e:
         logger.error(f"Erro ao normalizar caminho {caminho}: {e}")
         return str(caminho)
 
 @contextmanager
-def temp_directory() -> Iterator[Path]:
+def diretorio_temporario() -> Iterator[Path]:
     """Cria um diretório temporário que é removido automaticamente."""
-    temp_dir = Path(tempfile.mkdtemp())
+    diretorio_temp = Path(tempfile.mkdtemp())
     try:
-        yield temp_dir
+        yield diretorio_temp
     finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        shutil.rmtree(diretorio_temp, ignore_errors=True)
 
-def list_images(pasta: Path) -> List[Path]:
+def listar_imagens(pasta: Path) -> List[Path]:
     """Lista todas as imagens válidas em uma pasta e subpastas."""
     imagens = []
     try:
@@ -40,8 +40,8 @@ def list_images(pasta: Path) -> List[Path]:
             for arquivo in arquivos:
                 if arquivo.lower().endswith(('.jpg', '.jpeg', '.png')):
                     caminho = Path(raiz) / arquivo
-                    from image_processing import validate_image
-                    if validate_image(caminho):
+                    from processamento_imagem import validar_imagem
+                    if validar_imagem(caminho):
                         imagens.append(caminho)
                     else:
                         logger.warning(f"Ignorando arquivo inválido: {caminho}")
@@ -51,9 +51,9 @@ def list_images(pasta: Path) -> List[Path]:
         logger.error(f"Erro ao listar imagens em {pasta}: {e}")
         return []
 
-def load_known_faces(pasta_referencia: Path, arquivo_json: Path, temp_dir: Path) -> Dict[str, List[np.ndarray]]:
+def carregar_rostos_conhecidos(pasta_referencia: Path, arquivo_json: Path, diretorio_temp: Path) -> Dict[str, List[np.ndarray]]:
     """Carrega codificações de rostos conhecidos do arquivo JSON."""
-    from image_processing import preprocess_image, load_face_encodings
+    from processamento_imagem import pre_processar_imagem, carregar_codificacoes_rostos
     rostos = {}
     if not arquivo_json.exists():
         return rostos
@@ -63,12 +63,12 @@ def load_known_faces(pasta_referencia: Path, arquivo_json: Path, temp_dir: Path)
         for nome, info in dados.items():
             codificacoes = []
             for caminho in info['imagens']:
-                caminho = Path(normalize_path(caminho, str(pasta_referencia)))
+                caminho = Path(normalizar_caminho(caminho, str(pasta_referencia)))
                 if not caminho.exists():
                     continue
-                caminho_temp = temp_dir / f"ref_{caminho.name}"
-                if preprocess_image(caminho, caminho_temp):
-                    codificacoes.extend(load_face_encodings(caminho_temp))
+                caminho_temp = diretorio_temp / f"ref_{caminho.name}"
+                if pre_processar_imagem(caminho, caminho_temp):
+                    codificacoes.extend(carregar_codificacoes_rostos(caminho_temp))
             if codificacoes:
                 rostos[nome] = codificacoes
             else:
@@ -78,7 +78,7 @@ def load_known_faces(pasta_referencia: Path, arquivo_json: Path, temp_dir: Path)
         logger.error(f"Erro ao carregar {arquivo_json}: {e}")
     return rostos
 
-def save_known_faces(rostos: Dict[str, List[np.ndarray]], pasta_referencia: Path, arquivo_json: Path, imagens: Dict[str, List[Path]]) -> None:
+def salvar_rostos_conhecidos(rostos: Dict[str, List[np.ndarray]], pasta_referencia: Path, arquivo_json: Path, imagens: Dict[str, List[Path]]) -> None:
     """Salva codificações de rostos conhecidos no arquivo JSON."""
     try:
         dados = {nome: {"imagens": [str(img) for img in imagens.get(nome, [])]} for nome in rostos}

@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from separador import separar_fotos, pausar_processamento, retomar_processamento, cancelar_processamento, listar_fotos_em_subpastas, get_log_queue
+from separador_fotos import separar_fotos, pausar_processamento, retomar_processamento, cancelar_processamento, listar_fotos_em_subpastas, get_log_queue
 import threading
 import queue
 import os
