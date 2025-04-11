@@ -1,221 +1,217 @@
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
+from separador import Separador
 import threading
-from PIL import Image, ImageTk
+import queue
 import os
-from separador import separar_fotos, pausar_processamento, retomar_processamento, cancelar_processamento
-from multiprocessing import Queue
+import json
+import logging
+from pathlib import Path
+from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 class InterfaceSeparador:
-    def __init__(self, root):
+    def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Separador de Fotos")
-        self.root.geometry("700x550")
-        self.root.minsize(550, 450)
-
-        # Permitir que a janela seja redimensionável
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
-
-        # Aplicar um tema moderno
-        self.style = ttk.Style()
-        self.style.theme_use("clam")
-        self.style.configure("TLabel", font=("Helvetica", 10), background="#f0f0f0")
-        self.style.configure("TButton", font=("Helvetica", 10, "bold"), padding=5, background="#4a90e2", foreground="white")
-        self.style.configure("TEntry", font=("Helvetica", 10), padding=5)
-        self.style.configure("TLabelframe", background="#f0f0f0")
-        self.style.configure("TLabelframe.Label", background="#f0f0f0", font=("Helvetica", 11, "bold"))
-
-        # Frame principal
-        self.frame_principal = ttk.Frame(self.root, padding=15, style="Custom.TFrame")
-        self.frame_principal.grid(row=0, column=0, sticky="nsew")
-        self.style.configure("Custom.TFrame", background="#f0f0f0")
-
-        # Configurar responsividade
-        self.frame_principal.columnconfigure(0, weight=1)
-        self.frame_principal.rowconfigure(3, weight=1)
+        self.root.geometry("600x400")
+        self.separador = Separador()
+        self.log_queue = self.separador.get_log_queue()
+        self.progresso_queue = self.separador.get_progresso_queue()
 
         # Variáveis
-        self.pasta_referencia = tk.StringVar()
-        self.pasta_entrada = tk.StringVar()
-        self.pasta_saida = tk.StringVar()
-        self.processando = False
-        self.progresso = 0
-        self.total_fotos = 0
-        self.queue = Queue()
-        self.running = True
+        self.pasta_referencia = tk.StringVar(value="")
+        self.pasta_entrada = tk.StringVar(value="")
+        self.pasta_saida = tk.StringVar(value="")
+        self.progresso = tk.DoubleVar(value=0)
+        self.total_imagens = 0
 
-        # Frame para seleção de pastas
-        frame_pastas = ttk.LabelFrame(self.frame_principal, text="Seleção de Pastas", padding=10)
-        frame_pastas.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
-        frame_pastas.columnconfigure(1, weight=1)
+        # Interface
+        tk.Label(root, text="Pasta de Referência:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        tk.Entry(root, textvariable=self.pasta_referencia, width=50).grid(row=0, column=1, padx=5, pady=5)
+        tk.Button(root, text="Selecionar", command=self.selecionar_pasta_referencia).grid(row=0, column=2, padx=5, pady=5)
 
-        # Pasta de referência
-        ttk.Label(frame_pastas, text="Pasta de Referência:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        ttk.Entry(frame_pastas, textvariable=self.pasta_referencia).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-        ttk.Button(frame_pastas, text="Selecionar", command=self.selecionar_pasta_referencia).grid(row=0, column=2, padx=5, pady=5)
+        tk.Label(root, text="Pasta de Entrada:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        tk.Entry(root, textvariable=self.pasta_entrada, width=50).grid(row=1, column=1, padx=5, pady=5)
+        tk.Button(root, text="Selecionar", command=self.selecionar_pasta_entrada).grid(row=1, column=2, padx=5, pady=5)
 
-        # Pasta de entrada
-        ttk.Label(frame_pastas, text="Pasta de Entrada:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        ttk.Entry(frame_pastas, textvariable=self.pasta_entrada).grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-        ttk.Button(frame_pastas, text="Selecionar", command=self.selecionar_pasta_entrada).grid(row=1, column=2, padx=5, pady=5)
+        tk.Label(root, text="Pasta de Saída:").grid(row=2, column=0, padx=5, pady=5, sticky="e")
+        tk.Entry(root, textvariable=self.pasta_saida, width=50).grid(row=2, column=1, padx=5, pady=5)
+        tk.Button(root, text="Selecionar", command=self.selecionar_pasta_saida).grid(row=2, column=2, padx=5, pady=5)
 
-        # Pasta de saída
-        ttk.Label(frame_pastas, text="Pasta de Saída:").grid(row=2, column=0, padx=5, pady=5, sticky="w")
-        ttk.Entry(frame_pastas, textvariable=self.pasta_saida).grid(row=2, column=1, padx=5, pady=5, sticky="ew")
-        ttk.Button(frame_pastas, text="Selecionar", command=self.selecionar_pasta_saida).grid(row=2, column=2, padx=5, pady=5)
+        self.botao_iniciar = tk.Button(root, text="Iniciar", command=self.iniciar_separacao)
+        self.botao_iniciar.grid(row=3, column=0, columnspan=3, pady=10)
 
-        # Frame para botões de controle
-        frame_botoes = ttk.Frame(self.frame_principal, style="Custom.TFrame")
-        frame_botoes.grid(row=1, column=0, sticky="ew", padx=5, pady=10)
-        frame_botoes.columnconfigure(0, weight=1)
-        frame_botoes.columnconfigure(1, weight=1)
-        frame_botoes.columnconfigure(2, weight=1)
+        self.botao_pausar = tk.Button(root, text="Pausar", command=self.pausar_separacao, state=tk.DISABLED)
+        self.botao_pausar.grid(row=4, column=0, columnspan=3, pady=5)
 
-        # Carregar ícones (opcional)
-        try:
-            self.icon_play = ImageTk.PhotoImage(Image.open("play.png").resize((20, 20)))
-            self.icon_pause = ImageTk.PhotoImage(Image.open("pause.png").resize((20, 20)))
-            self.icon_stop = ImageTk.PhotoImage(Image.open("stop.png").resize((20, 20)))
-        except Exception:
-            self.icon_play = None
-            self.icon_pause = None
-            self.icon_stop = None
+        self.botao_cancelar = tk.Button(root, text="Cancelar", command=self.cancelar_separacao, state=tk.DISABLED)
+        self.botao_cancelar.grid(row=5, column=0, columnspan=3, pady=5)
 
-        self.botao_iniciar = ttk.Button(frame_botoes, text="Iniciar", image=self.icon_play, compound="left", command=self.iniciar_processamento)
-        self.botao_iniciar.grid(row=0, column=0, padx=10, pady=5, sticky="ew")
+        self.log_texto = tk.Text(root, height=10, width=70, state=tk.DISABLED)
+        self.log_texto.grid(row=6, column=0, columnspan=3, padx=5, pady=5)
 
-        self.botao_pausar = ttk.Button(frame_botoes, text="Pausar", image=self.icon_pause, compound="left", command=self.pausar_processamento, state="disabled")
-        self.botao_pausar.grid(row=0, column=1, padx=10, pady=5, sticky="ew")
+        self.barra_progresso = ttk.Progressbar(root, variable=self.progresso, maximum=100)
+        self.barra_progresso.grid(row=7, column=0, columnspan=3, padx=5, pady=5)
 
-        self.botao_cancelar = ttk.Button(frame_botoes, text="Cancelar", image=self.icon_stop, compound="left", command=self.cancelar_processamento, state="disabled")
-        self.botao_cancelar.grid(row=0, column=2, padx=10, pady=5, sticky="ew")
+        self.status_label = tk.Label(root, text="Pronto")
+        self.status_label.grid(row=8, column=0, columnspan=3, pady=5)
 
-        # Frame para barra de progresso
-        frame_progresso = ttk.Frame(self.frame_principal, style="Custom.TFrame")
-        frame_progresso.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
-        frame_progresso.columnconfigure(0, weight=1)
+        # Carregar configurações
+        self.load_settings()
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        self.barra_progresso = ttk.Progressbar(frame_progresso, orient="horizontal", mode="determinate")
-        self.barra_progresso.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+        # Iniciar verificações
+        self.atualizar_logs()
+        self.atualizar_progresso()
 
-        # Frame para o log
-        frame_log = ttk.LabelFrame(self.frame_principal, text="Log", padding=10)
-        frame_log.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
-        frame_log.columnconfigure(0, weight=1)
-        frame_log.rowconfigure(0, weight=1)
-
-        self.texto_log = tk.Text(frame_log, height=10, font=("Helvetica", 10), bg="#ffffff", fg="#333333", bd=0, relief="flat")
-        self.texto_log.grid(row=0, column=0, sticky="nsew")
-        scrollbar = ttk.Scrollbar(frame_log, orient="vertical", command=self.texto_log.yview)
-        scrollbar.grid(row=0, column=1, sticky="ns")
-        self.texto_log.config(yscrollcommand=scrollbar.set, state="disabled")
-
-        # Variável para controle do thread
-        self.thread_processamento = None
-
-        # Iniciar thread para ler mensagens da queue
-        self.thread_log = threading.Thread(target=self.ler_log_queue, daemon=True)
-        self.thread_log.start()
-
-    def ler_log_queue(self):
-        while self.running:
-            try:
-                mensagem = self.queue.get_nowait()
-                self.root.after(0, self.enviar_log, mensagem)
-            except:
-                threading.Event().wait(0.1)
-
-    def selecionar_pasta_referencia(self):
-        pasta = filedialog.askdirectory(title="Selecionar Pasta de Referência")
+    def selecionar_pasta_referencia(self) -> None:
+        pasta = filedialog.askdirectory()
         if pasta:
             self.pasta_referencia.set(pasta)
+            self.save_settings()
 
-    def selecionar_pasta_entrada(self):
-        pasta = filedialog.askdirectory(title="Selecionar Pasta de Entrada")
+    def selecionar_pasta_entrada(self) -> None:
+        pasta = filedialog.askdirectory()
         if pasta:
             self.pasta_entrada.set(pasta)
+            self.save_settings()
 
-    def selecionar_pasta_saida(self):
-        pasta = filedialog.askdirectory(title="Selecionar Pasta de Saída")
+    def selecionar_pasta_saida(self) -> None:
+        pasta = filedialog.askdirectory()
         if pasta:
             self.pasta_saida.set(pasta)
+            self.save_settings()
 
-    def enviar_log(self, mensagem):
-        self.texto_log.config(state="normal")
-        self.texto_log.insert(tk.END, mensagem + "\n")
-        self.texto_log.see(tk.END)
-        self.texto_log.config(state="disabled")
+    def load_settings(self) -> None:
+        """Carrega configurações salvas."""
+        try:
+            if Path("settings.json").exists():
+                with Path("settings.json").open("r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                self.pasta_referencia.set(settings.get("pasta_referencia", ""))
+                self.pasta_entrada.set(settings.get("pasta_entrada", ""))
+                self.pasta_saida.set(settings.get("pasta_saida", ""))
+        except Exception as e:
+            logger.error(f"Erro ao carregar configurações: {e}")
 
-        # Atualizar progresso se a mensagem contiver informações de progresso
-        if "fotos para processar" in mensagem:
-            try:
-                self.total_fotos = int(mensagem.split()[1])
-                self.progresso = 0
-                self.barra_progresso["maximum"] = self.total_fotos
-            except:
-                pass
-        elif f"/{self.total_fotos}]" in mensagem:
-            try:
-                self.progresso += 1
-                self.barra_progresso["value"] = self.progresso
-            except:
-                pass
+    def save_settings(self) -> None:
+        """Salva configurações atuais."""
+        try:
+            settings = {
+                "pasta_referencia": self.pasta_referencia.get(),
+                "pasta_entrada": self.pasta_entrada.get(),
+                "pasta_saida": self.pasta_saida.get()
+            }
+            with Path("settings.json").open("w", encoding="utf-8") as f:
+                json.dump(settings, f, indent=2)
+        except Exception as e:
+            logger.error(f"Erro ao salvar configurações: {e}")
 
-    def iniciar_processamento(self):
-        if not self.pasta_referencia.get() or not self.pasta_entrada.get() or not self.pasta_saida.get():
-            self.enviar_log("Erro: Selecione todas as pastas antes de iniciar.")
-            return
+    def iniciar_separacao(self) -> None:
+        for pasta, nome in [
+            (self.pasta_referencia.get(), "referência"),
+            (self.pasta_entrada.get(), "entrada"),
+            (self.pasta_saida.get(), "saída")
+        ]:
+            if not pasta:
+                messagebox.showerror("Erro", f"Selecione a pasta de {nome}.")
+                return
+            if not os.path.exists(pasta):
+                messagebox.showerror("Erro", f"A pasta de {nome} não existe.")
+                return
+            if not os.access(pasta, os.R_OK):
+                messagebox.showerror("Erro", f"Sem permissão de leitura na pasta de {nome}.")
+                return
+            if nome == "saída" and not os.access(pasta, os.W_OK):
+                messagebox.showerror("Erro", f"Sem permissão de escrita na pasta de saída.")
+                return
 
-        self.processando = True
-        self.progresso = 0
-        self.barra_progresso["value"] = 0
+        self.botao_iniciar.config(state=tk.DISABLED)
+        self.botao_pausar.config(state=tk.NORMAL)
+        self.botao_cancelar.config(state=tk.NORMAL)
+        self.progresso.set(0)
+        self.status_label.config(text="Processando...")
+        from file_utils import list_images
+        self.total_imagens = len(list_images(Path(self.pasta_entrada.get())))
 
-        self.botao_iniciar.config(state="disabled")
-        self.botao_pausar.config(state="normal")
-        self.botao_cancelar.config(state="normal")
-
-        self.thread_processamento = threading.Thread(target=self.executar_separacao)
-        self.thread_processamento.start()
-
-    def executar_separacao(self):
-        separar_fotos(
-            self.pasta_referencia.get(),
-            self.pasta_entrada.get(),
-            self.pasta_saida.get(),
-            self.queue
+        self.thread = threading.Thread(
+            target=self.executar_separacao,
+            args=(
+                self.pasta_referencia.get(),
+                self.pasta_entrada.get(),
+                self.pasta_saida.get(),
+            ),
         )
+        self.thread.daemon = True
+        self.thread.start()
 
-        self.processando = False
-        self.root.after(0, lambda: self.botao_iniciar.config(state="normal"))
-        self.root.after(0, lambda: self.botao_pausar.config(state="disabled"))
-        self.root.after(0, lambda: self.botao_cancelar.config(state="disabled"))
+    def executar_separacao(self, pasta_referencia: str, pasta_entrada: str, pasta_saida: str) -> None:
+        try:
+            self.separador.separar_fotos(pasta_referencia, pasta_entrada, pasta_saida)
+        except (PermissionError, OSError) as e:
+            self.log_queue.put(f"Erro: Sem permissão para acessar uma das pastas: {e}")
+            self.root.after(0, lambda: messagebox.showerror("Erro", str(e)))
+        except Exception as e:
+            self.log_queue.put("Erro inesperado. Contate o suporte.")
+            self.root.after(0, lambda: messagebox.showerror("Erro", "Erro inesperado durante a separação."))
+            logger.error(f"Erro na separação: {e}", exc_info=True)
+        finally:
+            self.root.after(0, self.finalizar_separacao)
 
-    def pausar_processamento(self):
+    def pausar_separacao(self) -> None:
         if self.botao_pausar["text"] == "Pausar":
-            pausar_processamento()
+            self.separador.pausar_processamento()
             self.botao_pausar.config(text="Retomar")
-            self.enviar_log("Processamento pausado.")
+            self.status_label.config(text="Pausado")
         else:
-            retomar_processamento()
+            self.separador.retomar_processamento()
             self.botao_pausar.config(text="Pausar")
-            self.enviar_log("Processamento retomado.")
+            self.status_label.config(text="Processando...")
 
-    def cancelar_processamento(self):
-        cancelar_processamento()
-        self.processando = False
-        self.botao_iniciar.config(state="normal")
-        self.botao_pausar.config(state="disabled")
-        self.botao_cancelar.config(state="disabled")
-        self.botao_pausar.config(text="Pausar")
-        self.enviar_log("Cancelando processamento...")
+    def cancelar_separacao(self) -> None:
+        self.separador.cancelar_processamento()
+        self.status_label.config(text="Cancelado")
+        self.finalizar_separacao()
 
-    def fechar(self):
-        self.running = False
+    def finalizar_separacao(self) -> None:
+        self.botao_iniciar.config(state=tk.NORMAL)
+        self.botao_pausar.config(state=tk.DISABLED, text="Pausar")
+        self.botao_cancelar.config(state=tk.DISABLED)
+        self.progresso.set(0)
+        self.status_label.config(text="Concluído")
+        self.save_settings()
+
+    def atualizar_logs(self) -> None:
+        try:
+            while True:
+                mensagem = self.log_queue.get_nowait()
+                self.log_texto.config(state=tk.NORMAL)
+                self.log_texto.insert(tk.END, mensagem + "\n")
+                self.log_texto.see(tk.END)
+                self.log_texto.config(state=tk.DISABLED)
+        except queue.Empty:
+            pass
+        self.root.update()
+        self.root.after(100, self.atualizar_logs)
+
+    def atualizar_progresso(self) -> None:
+        try:
+            while True:
+                self.progresso_queue.get_nowait()
+                if self.total_imagens > 0:
+                    self.progresso.set((self.progresso.get() + (1 / self.total_imagens) * 100))
+        except queue.Empty:
+            pass
+        self.root.after(100, self.atualizar_progresso)
+
+    def on_closing(self) -> None:
+        self.separador.cancelar_processamento()
+        self.save_settings()
         self.root.destroy()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     root = tk.Tk()
     app = InterfaceSeparador(root)
-    root.protocol("WM_DELETE_WINDOW", app.fechar)
     root.mainloop()

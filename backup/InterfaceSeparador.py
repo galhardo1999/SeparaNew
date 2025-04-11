@@ -1,160 +1,163 @@
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
+from separador import separar_fotos, pausar_processamento, retomar_processamento, cancelar_processamento, listar_fotos_em_subpastas, get_log_queue
 import threading
-from separador import separar_fotos, pausar_processamento, retomar_processamento, cancelar_processamento
+import queue
+import os
+import logging
 
 class InterfaceSeparador:
     def __init__(self, root):
         self.root = root
         self.root.title("Separador de Fotos")
-        self.root.geometry("600x500")
-        self.root.minsize(500, 400)  # Tamanho mínimo da janela
+        self.root.geometry("600x400")
 
-        # Permitir que a janela seja redimensionável
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
+        # Inicializar variáveis
+        self.pasta_referencia = tk.StringVar(value="")
+        self.pasta_entrada = tk.StringVar(value="")
+        self.pasta_saida = tk.StringVar(value="")
+        self.log_queue = get_log_queue()  # Usar a mesma fila do separador
+        self.total_imagens = 0
+        self.progresso = tk.DoubleVar(value=0)
 
-        # Frame principal para conter todos os widgets
-        self.frame_principal = ttk.Frame(self.root, padding=10)
-        self.frame_principal.grid(row=0, column=0, sticky="nsew")
+        # Interface
+        tk.Label(root, text="Pasta de Referência:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        tk.Entry(root, textvariable=self.pasta_referencia, width=50).grid(row=0, column=1, padx=5, pady=5)
+        tk.Button(root, text="Selecionar", command=self.selecionar_pasta_referencia).grid(row=0, column=2, padx=5, pady=5)
 
-        # Configurar o frame principal para ser responsivo
-        self.frame_principal.columnconfigure(0, weight=1)
-        self.frame_principal.rowconfigure(2, weight=1)  # A linha do log deve expandir mais
+        tk.Label(root, text="Pasta de Entrada:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        tk.Entry(root, textvariable=self.pasta_entrada, width=50).grid(row=1, column=1, padx=5, pady=5)
+        tk.Button(root, text="Selecionar", command=self.selecionar_pasta_entrada).grid(row=1, column=2, padx=5, pady=5)
 
-        # Variáveis para os caminhos
-        self.pasta_referencia = tk.StringVar()
-        self.pasta_entrada = tk.StringVar()
-        self.pasta_saida = tk.StringVar()
+        tk.Label(root, text="Pasta de Saída:").grid(row=2, column=0, padx=5, pady=5, sticky="e")
+        tk.Entry(root, textvariable=self.pasta_saida, width=50).grid(row=2, column=1, padx=5, pady=5)
+        tk.Button(root, text="Selecionar", command=self.selecionar_pasta_saida).grid(row=2, column=2, padx=5, pady=5)
 
-        # Frame para seleção de pastas
-        frame_pastas = ttk.LabelFrame(self.frame_principal, text="Seleção de Pastas", padding=10)
-        frame_pastas.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        self.botao_iniciar = tk.Button(root, text="Iniciar", command=self.iniciar_separacao)
+        self.botao_iniciar.grid(row=3, column=0, columnspan=3, pady=10)
 
-        # Configurar o frame de pastas para ser responsivo
-        frame_pastas.columnconfigure(1, weight=1)
+        self.botao_pausar = tk.Button(root, text="Pausar", command=self.pausar_separacao, state=tk.DISABLED)
+        self.botao_pausar.grid(row=4, column=0, columnspan=3, pady=5)
 
-        # Pasta de referência
-        ttk.Label(frame_pastas, text="Pasta de Referência:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        ttk.Entry(frame_pastas, textvariable=self.pasta_referencia).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-        ttk.Button(frame_pastas, text="Selecionar", command=self.selecionar_pasta_referencia).grid(row=0, column=2, padx=5, pady=5)
+        self.botao_cancelar = tk.Button(root, text="Cancelar", command=self.cancelar_separacao, state=tk.DISABLED)
+        self.botao_cancelar.grid(row=5, column=0, columnspan=3, pady=5)
 
-        # Pasta de entrada
-        ttk.Label(frame_pastas, text="Pasta de Entrada:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        ttk.Entry(frame_pastas, textvariable=self.pasta_entrada).grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-        ttk.Button(frame_pastas, text="Selecionar", command=self.selecionar_pasta_entrada).grid(row=1, column=2, padx=5, pady=5)
+        self.log_texto = tk.Text(root, height=10, width=70, state=tk.DISABLED)
+        self.log_texto.grid(row=6, column=0, columnspan=3, padx=5, pady=5)
 
-        # Pasta de saída
-        ttk.Label(frame_pastas, text="Pasta de Saída:").grid(row=2, column=0, padx=5, pady=5, sticky="w")
-        ttk.Entry(frame_pastas, textvariable=self.pasta_saida).grid(row=2, column=1, padx=5, pady=5, sticky="ew")
-        ttk.Button(frame_pastas, text="Selecionar", command=self.selecionar_pasta_saida).grid(row=2, column=2, padx=5, pady=5)
+        self.barra_progresso = ttk.Progressbar(root, variable=self.progresso, maximum=100)
+        self.barra_progresso.grid(row=7, column=0, columnspan=3, padx=5, pady=5)
 
-        # Frame para botões de controle
-        frame_botoes = ttk.Frame(self.frame_principal)
-        frame_botoes.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
-
-        
-
-        # Frame para o log
-        frame_log = ttk.LabelFrame(self.frame_principal, text="Log", padding=10)
-        frame_log.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
-
-        # Configurar o frame de log para ser responsivo
-        frame_log.columnconfigure(0, weight=1)
-        frame_log.rowconfigure(0, weight=1)
-
-        self.texto_log = tk.Text(frame_log, height=10, state="disabled")
-        self.texto_log.grid(row=0, column=0, sticky="nsew")
-        scrollbar = ttk.Scrollbar(frame_log, orient="vertical", command=self.texto_log.yview)
-        scrollbar.grid(row=0, column=1, sticky="ns")
-        self.texto_log.config(yscrollcommand=scrollbar.set)
-
-        # Variável para controle do thread
-        self.thread_processamento = None
-
-        # Configurar o frame de botões para ser responsivo
-        frame_botoes.columnconfigure(0, weight=1)
-        frame_botoes.columnconfigure(1, weight=1)
-        frame_botoes.columnconfigure(2, weight=1)
-
-        self.botao_iniciar = ttk.Button(frame_botoes, text="Iniciar", command=self.iniciar_processamento)
-        self.botao_iniciar.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
-
-        self.botao_pausar = ttk.Button(frame_botoes, text="Pausar", command=self.pausar_processamento, state="disabled")
-        self.botao_pausar.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-
-        self.botao_cancelar = ttk.Button(frame_botoes, text="Cancelar", command=self.cancelar_processamento, state="disabled")
-        self.botao_cancelar.grid(row=0, column=2, padx=5, pady=5, sticky="ew")
+        # Iniciar verificação de logs
+        self.atualizar_logs()
 
     def selecionar_pasta_referencia(self):
-        pasta = filedialog.askdirectory(title="Selecionar Pasta de Referência")
+        pasta = filedialog.askdirectory()
         if pasta:
             self.pasta_referencia.set(pasta)
 
     def selecionar_pasta_entrada(self):
-        pasta = filedialog.askdirectory(title="Selecionar Pasta de Entrada")
+        pasta = filedialog.askdirectory()
         if pasta:
             self.pasta_entrada.set(pasta)
 
     def selecionar_pasta_saida(self):
-        pasta = filedialog.askdirectory(title="Selecionar Pasta de Saída")
+        pasta = filedialog.askdirectory()
         if pasta:
             self.pasta_saida.set(pasta)
 
-    def enviar_log(self, mensagem):
-        self.texto_log.config(state="normal")
-        self.texto_log.insert(tk.END, mensagem + "\n")
-        self.texto_log.see(tk.END)
-        self.texto_log.config(state="disabled")
+    def iniciar_separacao(self):
+        for pasta, nome in [
+            (self.pasta_referencia.get(), "referência"),
+            (self.pasta_entrada.get(), "entrada"),
+            (self.pasta_saida.get(), "saída")
+        ]:
+            if not pasta:
+                messagebox.showerror("Erro", f"Selecione a pasta de {nome}.")
+                return
+            if not os.path.exists(pasta):
+                messagebox.showerror("Erro", f"A pasta de {nome} não existe.")
+                return
+            if not os.access(pasta, os.R_OK):
+                messagebox.showerror("Erro", f"Sem permissão de leitura na pasta de {nome}.")
+                return
+            if nome == "saída" and not os.access(pasta, os.W_OK):
+                messagebox.showerror("Erro", f"Sem permissão de escrita na pasta de saída.")
+                return
 
-    def iniciar_processamento(self):
-        # Verificar se os caminhos foram preenchidos
-        if not self.pasta_referencia.get() or not self.pasta_entrada.get() or not self.pasta_saida.get():
-            self.enviar_log("Erro: Selecione todas as pastas antes de iniciar.")
-            return
+        self.botao_iniciar.config(state=tk.DISABLED)
+        self.botao_pausar.config(state=tk.NORMAL)
+        self.botao_cancelar.config(state=tk.NORMAL)
+        self.progresso.set(0)
+        self.total_imagens = len(listar_fotos_em_subpastas(self.pasta_entrada.get()))
 
-        # Desativar botão de iniciar e ativar os outros
-        self.botao_iniciar.config(state="disabled")
-        self.botao_pausar.config(state="normal")
-        self.botao_cancelar.config(state="normal")
-
-        # Iniciar o processamento em um thread separado
-        self.thread_processamento = threading.Thread(target=self.executar_separacao)
-        self.thread_processamento.start()
-
-    def executar_separacao(self):
-        # Chamar a função de separação
-        separar_fotos(
-            self.pasta_referencia.get(),
-            self.pasta_entrada.get(),
-            self.pasta_saida.get(),
-            self.enviar_log
+        self.thread = threading.Thread(
+            target=self.executar_separacao,
+            args=(
+                self.pasta_referencia.get(),
+                self.pasta_entrada.get(),
+                self.pasta_saida.get(),
+            ),
         )
+        self.thread.daemon = True
+        self.thread.start()
 
-        # Reativar botão de iniciar e desativar os outros
-        self.root.after(0, lambda: self.botao_iniciar.config(state="normal"))
-        self.root.after(0, lambda: self.botao_pausar.config(state="disabled"))
-        self.root.after(0, lambda: self.botao_cancelar.config(state="disabled"))
+    def executar_separacao(self, pasta_referencia, pasta_entrada, pasta_saida):
+        try:
+            separar_fotos(pasta_referencia, pasta_entrada, pasta_saida)
+        except PermissionError:
+            self.log_queue.put("Erro: Sem permissão para acessar uma das pastas selecionadas.")
+            logging.error("Permissão negada durante separação", exc_info=True)
+        except FileNotFoundError:
+            self.log_queue.put("Erro: Uma das pastas selecionadas não existe.")
+            logging.error("Pasta não encontrada durante separação", exc_info=True)
+        except Exception as e:
+            self.log_queue.put("Erro inesperado durante a separação. Contate o suporte.")
+            logging.critical(f"Erro inesperado na separação: {e}", exc_info=True)
+        finally:
+            self.root.after(0, self.finalizar_separacao)
 
-    def pausar_processamento(self):
+    def pausar_separacao(self):
         if self.botao_pausar["text"] == "Pausar":
             pausar_processamento()
             self.botao_pausar.config(text="Retomar")
-            self.enviar_log("Processamento pausado.")
+            self.log_queue.put("Processamento pausado.")
         else:
             retomar_processamento()
             self.botao_pausar.config(text="Pausar")
-            self.enviar_log("Processamento retomado.")
+            self.log_queue.put("Processamento retomado.")
 
-    def cancelar_processamento(self):
+    def cancelar_separacao(self):
         cancelar_processamento()
-        self.botao_iniciar.config(state="normal")
-        self.botao_pausar.config(state="disabled")
-        self.botao_cancelar.config(state="disabled")
-        self.botao_pausar.config(text="Pausar")
-        self.enviar_log("Cancelando processamento...")
+        self.log_queue.put("Cancelando processamento...")
+        self.finalizar_separacao()
 
-if __name__ == '__main__':
+    def finalizar_separacao(self):
+        self.botao_iniciar.config(state=tk.NORMAL)
+        self.botao_pausar.config(state=tk.DISABLED, text="Pausar")
+        self.botao_cancelar.config(state=tk.DISABLED)
+        self.progresso.set(0)
+
+    def atualizar_logs(self):
+        try:
+            while True:
+                mensagem = self.log_queue.get_nowait()
+                self.log_texto.config(state=tk.NORMAL)
+                self.log_texto.insert(tk.END, mensagem + "\n")
+                self.log_texto.see(tk.END)
+                self.log_texto.config(state=tk.DISABLED)
+                # Atualizar progresso
+                if "Imagem pré-processada" in mensagem and self.total_imagens > 0:
+                    try:
+                        indice = int(mensagem.split("[")[1].split("/")[0])
+                        self.progresso.set((indice / self.total_imagens) * 100)
+                    except (IndexError, ValueError):
+                        pass  # Ignorar mensagens malformadas
+        except queue.Empty:
+            pass
+        self.root.after(100, self.atualizar_logs)
+
+if __name__ == "__main__":
     root = tk.Tk()
     app = InterfaceSeparador(root)
     root.mainloop()
