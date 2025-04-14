@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Bem-vindo, {{ user_name }}!</h2>
+<h3>Planos Disponíveis</h3>
+<div class="row">
+    {% for plano in planos %}
+        <div class="col-md-4 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title">{{ plano.nome }}</h5>
+                </div>
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2 text-muted">{{ plano.preco }}</h6>
+                    <ul class="list-group list-group-flush">
+                        {% for recurso in plano.recursos %}
+                            <li class="list-group-item">{{ recurso }}</li>
+                        {% endfor %}
+                    </ul>
+                    <a href="#" class="btn btn-primary mt-3">Assinar</a>
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+</div>
+{% endblock %}
