@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class Configuracao:
     TAMANHO_MAXIMO: Tuple[int, int] = (2560, 1440)
     TOLERANCIA: float = 0.47
-    MODELO: str = "hog"  # Pode ser "hog" para processamento mais rápido # Pode ser "cnn" para processamento mais preciso
+    MODELO: str = "cnn"  # Pode ser "hog" para processamento mais rápido # Pode ser "cnn" para processamento mais preciso
 
 def validar_imagem(caminho: Path) -> bool:
     """Verifica se o arquivo é uma imagem válida."""

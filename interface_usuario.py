@@ -21,6 +21,7 @@ class InterfaceSeparadorFotos:
         self.separador = SeparadorFotos()
         self.fila_logs = self.separador.obter_fila_logs()
         self.fila_progresso = self.separador.obter_fila_progresso()
+        self.contador_processadas = self.separador.obter_contador_processadas()
 
         # Configurar pesos para responsividade
         self.janela.grid_columnconfigure(1, weight=1)  # Coluna das entradas expande
@@ -37,6 +38,7 @@ class InterfaceSeparadorFotos:
         self.pasta_saida = tk.StringVar(value="")
         self.progresso = tk.DoubleVar(value=0)
         self.total_imagens = 0
+        self.ultima_foto_logada = 0  # Rastrear última foto exibida no log
 
         # Configuração da interface
         tk.Label(janela, text="Pasta de Referência:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
@@ -154,6 +156,7 @@ class InterfaceSeparadorFotos:
         self.botao_pausar.config(state=tk.NORMAL)
         self.botao_cancelar.config(state=tk.NORMAL)
         self.progresso.set(0)
+        self.ultima_foto_logada = 0  # Resetar log
         self.label_status.config(text="Processando...")
         from utilitarios_arquivos import listar_imagens
         self.total_imagens = len(listar_imagens(Path(self.pasta_entrada.get())))
@@ -222,14 +225,18 @@ class InterfaceSeparadorFotos:
                 self.texto_logs.config(state=tk.NORMAL)
                 self.texto_logs.insert(tk.END, texto + "\n")
                 self.texto_logs.see(tk.END)
+                # Limitar o número de linhas para evitar sobrecarga
+                linhas = int(self.texto_logs.index('end-1c').split('.')[0])
+                if linhas > 1000:
+                    self.texto_logs.delete(1.0, f"{linhas-1000}.0")
                 self.texto_logs.config(state=tk.DISABLED)
+                self.janela.update_idletasks()
         except queue.Empty:
             pass
-        self.janela.update()
         self.janela.after(100, self.atualizar_logs)
 
     def atualizar_progresso(self) -> None:
-        """Atualiza a barra de progresso com base na fila de progresso."""
+        """Atualiza a barra de progresso e os logs de fotos processadas."""
         try:
             while True:
                 self.fila_progresso.get_nowait()
@@ -237,6 +244,20 @@ class InterfaceSeparadorFotos:
                     self.progresso.set((self.progresso.get() + (1 / self.total_imagens) * 100))
         except queue.Empty:
             pass
+        # Atualizar logs com base no contador_processadas
+        with self.contador_processadas.get_lock():  # Sincronizar acesso
+            fotos_processadas = self.contador_processadas.value
+        while self.ultima_foto_logada < fotos_processadas and self.total_imagens > 0:
+            self.ultima_foto_logada += 1
+            self.texto_logs.config(state=tk.NORMAL)
+            self.texto_logs.insert(tk.END, f"Fotos processadas: {self.ultima_foto_logada}/{self.total_imagens} fotos\n")
+            self.texto_logs.see(tk.END)
+            # Limitar o número de linhas
+            linhas = int(self.texto_logs.index('end-1c').split('.')[0])
+            if linhas > 1000:
+                self.texto_logs.delete(1.0, f"{linhas-1000}.0")
+            self.texto_logs.config(state=tk.DISABLED)
+            self.janela.update_idletasks()
         self.janela.after(100, self.atualizar_progresso)
 
     def ao_fechar(self) -> None:
