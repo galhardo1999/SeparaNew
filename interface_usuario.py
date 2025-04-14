@@ -245,8 +245,7 @@ class InterfaceSeparadorFotos:
         except queue.Empty:
             pass
         # Atualizar logs com base no contador_processadas
-        with self.contador_processadas.get_lock():  # Sincronizar acesso
-            fotos_processadas = self.contador_processadas.value
+        fotos_processadas = self.contador_processadas.value
         while self.ultima_foto_logada < fotos_processadas and self.total_imagens > 0:
             self.ultima_foto_logada += 1
             self.texto_logs.config(state=tk.NORMAL)

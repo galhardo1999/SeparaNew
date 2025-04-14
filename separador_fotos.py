@@ -42,8 +42,7 @@ def processar_imagem(caminho_imagem: Path, rostos_conhecidos: Dict[str, List[np.
         codificacoes = carregar_codificacoes_rostos(caminho_imagem)
         if not codificacoes:
             logger.info(f"[{indice}/{total}] Nenhum rosto em {caminho_imagem.name}")
-            with contador_processadas.get_lock():  # Sincronizar acesso
-                contador_processadas.value += 1
+            contador_processadas.value += 1
             fila_progresso.put(1)
             return
         pessoas_identificadas = set()
@@ -62,8 +61,7 @@ def processar_imagem(caminho_imagem: Path, rostos_conhecidos: Dict[str, List[np.
             pasta_desconhecidos.mkdir(parents=True, exist_ok=True)
             shutil.copy(caminho_original, pasta_desconhecidos)
             logger.info(f"[{indice}/{total}] {caminho_original.name} copiada para 'desconhecidos'")
-        with contador_processadas.get_lock():  # Sincronizar acesso
-            contador_processadas.value += 1
+        contador_processadas.value += 1
         fila_progresso.put(1)
     except (PermissionError, OSError) as e:
         logger.error(f"Erro ao processar {caminho_imagem}: {e}")
@@ -194,7 +192,7 @@ class SeparadorFotos:
                 return
 
             arquivos_pre_processados = self.pre_processar_imagens_em_lote(arquivos_imagem, diretorio_temp)
-            if not arquivos_pre_processadas:
+            if not arquivos_pre_processados:
                 erros.append("Nenhuma imagem válida após pré-processamento")
                 logger.warning("Nenhuma imagem válida após pré-processamento")
                 self.gerar_relatorio(pasta_saida, erros)
@@ -207,7 +205,7 @@ class SeparadorFotos:
             self.fila_logs.put(f"Processando {total_fotos} fotos com {num_processos} núcleos...")
             argumentos = [
                 (caminho, rostos_conhecidos, pasta_saida, i + 1, total_fotos, arquivos_imagem[i], self.cancelado, self.fila_progresso, self.evento_processamento, self.contador_processadas)
-                for i, caminho in enumerate(arquivos_pre_processadas)
+                for i, caminho in enumerate(arquivos_pre_processados)
             ]
             try:
                 with Pool(processes=num_processos) as pool:
