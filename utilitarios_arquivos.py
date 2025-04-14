@@ -82,6 +82,7 @@ def salvar_rostos_conhecidos(rostos: Dict[str, List[np.ndarray]], pasta_referenc
     """Salva codificações de rostos conhecidos no arquivo JSON."""
     try:
         dados = {nome: {"imagens": [str(img) for img in imagens.get(nome, [])]} for nome in rostos}
+        arquivo_json.parent.mkdir(parents=True, exist_ok=True)  # Garante que a pasta de saída existe
         with arquivo_json.open('w', encoding='utf-8') as f:
             json.dump(dados, f, indent=2)
         logger.info(f"Rostos conhecidos salvos em {arquivo_json}")

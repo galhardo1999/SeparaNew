@@ -1,3 +1,5 @@
+import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from separador_fotos import SeparadorFotos
@@ -8,6 +10,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Optional
+from deepface import DeepFace
 
 logger = logging.getLogger(__name__)
 

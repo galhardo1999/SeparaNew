@@ -11,6 +11,7 @@ from typing import List, Dict, Tuple, Optional
 import math
 from queue import Queue
 import numpy as np
+from deepface import DeepFace
 
 from processamento_imagem import pre_processar_imagem, carregar_codificacoes_rostos, comparar_rostos, Configuracao
 from utilitarios_arquivos import normalizar_caminho, diretorio_temporario, listar_imagens, carregar_rostos_conhecidos, salvar_rostos_conhecidos
@@ -28,6 +29,7 @@ def processar_imagem_pre(caminho: Path, diretorio_temp: Path, indice: int, total
         fila_progresso.put(1)
         return caminho_destino
     return None
+
 
 # Função independente para processamento de imagens em Pool
 def processar_imagem(caminho_imagem: Path, rostos_conhecidos: Dict[str, List[np.ndarray]], pasta_saida: Path, indice: int, total: int, caminho_original: Path, cancelado: 'multiprocessing.managers.ValueProxy', fila_progresso: 'multiprocessing.managers.QueueProxy', evento_processamento: 'multiprocessing.managers.Event', contador_processadas: 'multiprocessing.managers.ValueProxy') -> None:
@@ -123,37 +125,41 @@ class SeparadorFotos:
         logger.info(f"Pré-processamento concluído: {len(caminhos_pre_processados)}/{total} imagens válidas")
         return caminhos_pre_processados
 
-    def gerar_relatorio(self, pasta_saida: Path, erros: List[str]) -> None:
-        """Gera um relatório com o número de fotos por pessoa."""
+    def gerar_relatorio(self, pasta_saida: Path, erros: List[str], imagens_sem_rostos: List[Path] = None) -> None:
         relatorio = {}
         try:
             for pasta in pasta_saida.iterdir():
                 if pasta.is_dir():
                     qtd_fotos = len([f for f in pasta.iterdir() if f.suffix.lower() in {'.jpg', '.jpeg', '.png'}])
                     relatorio[pasta.name] = qtd_fotos
-            with open("relatorio.txt", "w", encoding='utf-8') as f:
+            relatorio_path = pasta_saida / "relatorio.txt"
+            with relatorio_path.open("w", encoding='utf-8') as f:
                 f.write("Relatório de Separação\n")
                 f.write(f"Data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
                 for pessoa, qtd in relatorio.items():
                     f.write(f"{pessoa}: {qtd} fotos\n")
+                if imagens_sem_rostos:
+                    f.write("\nImagens sem rostos detectados:\n")
+                    for img in imagens_sem_rostos:
+                        f.write(f"- {img}\n")
                 if erros:
                     f.write("\nErros Encontrados:\n")
                     for erro in erros:
                         f.write(f"- {erro}\n")
-            logger.info("Relatório gerado em 'relatorio.txt'")
+            logger.info(f"Relatório gerado em '{relatorio_path}'")
         except (PermissionError, OSError) as e:
             logger.error(f"Erro ao gerar relatório: {e}")
             erros.append(f"Erro ao gerar relatório: {e}")
 
     def separar_fotos(self, pasta_referencia: str, pasta_entrada: str, pasta_saida: str) -> None:
-        """Separa fotos por pessoa com base em reconhecimento facial."""
         self.cancelado.value = False
-        self.contador_processadas.value = 0  # Resetar contador
+        self.contador_processadas.value = 0
         erros = []
+        imagens_sem_rostos = []  # Nova lista
         pasta_referencia = Path(normalizar_caminho(pasta_referencia))
         pasta_entrada = Path(normalizar_caminho(pasta_entrada))
         pasta_saida = Path(normalizar_caminho(pasta_saida))
-        arquivo_json = Path("rostos_conhecidos.json")
+        arquivo_json = pasta_saida / "rostos_conhecidos.json"
         logger.info(f"Iniciando separação: Ref={pasta_referencia}, In={pasta_entrada}, Out={pasta_saida}")
 
         try:
@@ -162,7 +168,7 @@ class SeparadorFotos:
         except (PermissionError, OSError) as e:
             erros.append(f"Sem permissão para criar pastas: {e}")
             logger.error(f"Erro ao criar pastas: {e}")
-            self.gerar_relatorio(pasta_saida, erros)
+            self.gerar_relatorio(pasta_saida, erros, imagens_sem_rostos)
             return
 
         with diretorio_temporario() as diretorio_temp:
@@ -171,6 +177,7 @@ class SeparadorFotos:
             if not rostos_conhecidos:
                 logger.info(f"Verificando imagens de referência em {pasta_referencia}")
                 for arquivo_ref in pasta_referencia.glob("*.jpg") or pasta_referencia.glob("*.jpeg") or pasta_referencia.glob("*.png"):
+                    logger.info(f"Imagem '{arquivo_ref.name}' está sendo verificada.")
                     caminho_temp = diretorio_temp / f"ref_{arquivo_ref.name}"
                     if pre_processar_imagem(arquivo_ref, caminho_temp):
                         codificacoes = carregar_codificacoes_rostos(caminho_temp)
@@ -178,6 +185,12 @@ class SeparadorFotos:
                             nome_base = arquivo_ref.stem.split('_')[0]
                             rostos_conhecidos.setdefault(nome_base, []).extend(codificacoes)
                             imagens_referencia.setdefault(nome_base, []).append(arquivo_ref)
+                            logger.info(f"Imagem '{arquivo_ref.name}' verificada com sucesso.")
+                        else:
+                            imagens_sem_rostos.append(arquivo_ref)
+                            logger.info(f"Imagem '{arquivo_ref.name}' verificada, mas nenhum rosto detectado.")
+                    else:
+                        logger.warning(f"Imagem '{arquivo_ref.name}' não pôde ser pré-processada.")
                 if rostos_conhecidos:
                     salvar_rostos_conhecidos(rostos_conhecidos, pasta_referencia, arquivo_json, imagens_referencia)
                 else:
@@ -188,14 +201,14 @@ class SeparadorFotos:
             if not arquivos_imagem:
                 erros.append("Nenhuma imagem válida na pasta de entrada")
                 logger.warning("Nenhuma imagem válida encontrada")
-                self.gerar_relatorio(pasta_saida, erros)
+                self.gerar_relatorio(pasta_saida, erros, imagens_sem_rostos)
                 return
 
             arquivos_pre_processados = self.pre_processar_imagens_em_lote(arquivos_imagem, diretorio_temp)
             if not arquivos_pre_processados:
                 erros.append("Nenhuma imagem válida após pré-processamento")
                 logger.warning("Nenhuma imagem válida após pré-processamento")
-                self.gerar_relatorio(pasta_saida, erros)
+                self.gerar_relatorio(pasta_saida, erros, imagens_sem_rostos)
                 return
 
             total_fotos = len(arquivos_pre_processados)
@@ -219,4 +232,4 @@ class SeparadorFotos:
                 logger.info("Processamento cancelado pelo usuário")
             else:
                 logger.info(f"Separação concluída: {pasta_saida}")
-            self.gerar_relatorio(pasta_saida, erros)
+            self.gerar_relatorio(pasta_saida, erros, imagens_sem_rostos)
