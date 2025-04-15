@@ -10,8 +10,8 @@ from deepface import DeepFace
 logger = logging.getLogger(__name__)
 
 class Configuracao:
-    MODELO: str = "Facenet512"
-    DETECTOR: str = "yolov8"
+    MODELO: str = "Facenet512"  # Já configurado
+    DETECTOR: str = "dlib"
     TOLERANCIA: float = 0.35
     TAMANHO_MAXIMO: Tuple[int, int] = (1280, 720)
 
