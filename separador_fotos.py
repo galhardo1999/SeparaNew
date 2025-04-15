@@ -113,15 +113,32 @@ class SeparadorFotos:
         self.fila_logs.put("Processamento cancelado.")
 
     def pre_processar_imagens_em_lote(self, arquivos: List[Path], diretorio_temp: Path) -> List[Path]:
-        """Pré-processa imagens em paralelo."""
         total = len(arquivos)
         logger.info(f"Iniciando pré-processamento de {total} imagens")
-        with Pool(processes=cpu_count()) as pool:
-            resultados = pool.starmap(
-                processar_imagem_pre,
-                [(caminho, diretorio_temp, i + 1, total, self.cancelado, self.fila_progresso) for i, caminho in enumerate(arquivos)]
-            )
-        caminhos_pre_processados = [r for r in resultados if r is not None]
+        caminhos_pre_processados = []
+        lote_tamanho = 10  # Ajustar conforme memória disponível
+        
+        # Determinar número de processos com base nos núcleos
+        num_nucleos = cpu_count()
+        if num_nucleos <= 2:
+            num_processos = 1
+        else:
+            num_processos = max(1, math.floor(num_nucleos * 0.8))
+        
+        logger.info(f"Usando {num_processos} processos para {num_nucleos} núcleos")
+        
+        for i in range(0, total, lote_tamanho):
+            if self.cancelado.value:
+                return caminhos_pre_processados
+            lote = arquivos[i:i + lote_tamanho]
+            with Pool(processes=num_processos) as pool:
+                resultados = pool.starmap(
+                    processar_imagem_pre,
+                    [(caminho, diretorio_temp, i + j + 1, total, self.cancelado, self.fila_progresso)
+                     for j, caminho in enumerate(lote)]
+                )
+            caminhos_pre_processados.extend([r for r in resultados if r is not None])
+        
         logger.info(f"Pré-processamento concluído: {len(caminhos_pre_processados)}/{total} imagens válidas")
         return caminhos_pre_processados
 

@@ -10,10 +10,10 @@ from deepface import DeepFace
 logger = logging.getLogger(__name__)
 
 class Configuracao:
-    TAMANHO_MAXIMO: Tuple[int, int] = (1920, 1080)
-    TOLERANCIA: float = 0.50
-    MODELO: str = "ArcFace"
-    DETECTOR: str = "retinaface"
+    MODELO: str = "Facenet512"
+    DETECTOR: str = "yolov8"
+    TOLERANCIA: float = 0.35
+    TAMANHO_MAXIMO: Tuple[int, int] = (1280, 720)
 
 
 def validar_imagem(caminho: Path) -> bool:
